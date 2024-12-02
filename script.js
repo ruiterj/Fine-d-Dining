@@ -227,11 +227,128 @@ function createPopupContent(restaurant) {
     `;
 }
 
+// Add these functions to script.js
+
+// Function to draw search radius circle
+function drawSearchRadius() {
+    // Remove existing radius circles
+    map.eachLayer((layer) => {
+        if (layer instanceof L.Circle) {
+            map.removeLayer(layer);
+        }
+    });
+
+    if (currentPosition) {
+        const radius = document.getElementById('radius').value;
+        L.circle(currentPosition, {
+            radius: parseInt(radius),
+            fillColor: '#000',
+            fillOpacity: 0.1,
+            color: '#000',
+            weight: 1
+        }).addTo(map);
+    }
+}
+
+// Function to get route using OSRM
+async function getRoute(start, end) {
+    const response = await fetch(
+        `https://router.project-osrm.org/route/v1/walking/${start.lng},${start.lat};${end[1]},${end[0]}?overview=full&geometries=geojson`
+    );
+    const data = await response.json();
+    return data;
+}
+
+// Update createRoute function
+async function createRoute(destLat, destLng) {
+    clearRoute();
+    if (!currentPosition) {
+        alert('Please set your location first!');
+        return;
+    }
+
+    try {
+        const routeData = await getRoute(currentPosition, [destLat, destLng]);
+        
+        if (routeData.code === 'Ok' && routeData.routes.length > 0) {
+            const routeCoordinates = routeData.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
+            
+            // Create the route polyline
+            const routeLine = L.polyline(routeCoordinates, {
+                color: '#000',
+                weight: 3,
+                opacity: 0.7
+            }).addTo(map);
+
+            // Fit the map to show the entire route
+            const bounds = L.latLngBounds(routeCoordinates);
+            map.fitBounds(bounds, { padding: [50, 50] });
+
+            // Add distance and duration to the popup
+            const distance = (routeData.routes[0].distance / 1000).toFixed(2); // Convert to km
+            const duration = Math.round(routeData.routes[0].duration / 60); // Convert to minutes
+
+            routeLine.bindPopup(
+                `<div class="route-info">
+                    <p><strong>Distance:</strong> ${distance} km</p>
+                    <p><strong>Walking time:</strong> ~${duration} minutes</p>
+                </div>`
+            );
+        }
+    } catch (error) {
+        console.error('Error creating route:', error);
+        alert('Error calculating route. Falling back to straight line.');
+        
+        // Fallback to straight line if routing fails
+        const routeCoords = [
+            [currentPosition.lat, currentPosition.lng],
+            [destLat, destLng]
+        ];
+        
+        L.polyline(routeCoords, {
+            color: '#000',
+            weight: 3,
+            opacity: 0.7,
+            dashArray: '5, 10'
+        }).addTo(map);
+    }
+}
+
+// Update initMap function to include radius drawing
+function initMap() {
+    map = L.map('map').setView([51.505, -0.09], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    map.on('click', function(e) {
+        if (marker) {
+            map.removeLayer(marker);
+        }
+        currentPosition = e.latlng;
+        marker = L.marker(e.latlng, {icon: customIcons.userLocation}).addTo(map);
+        drawSearchRadius();
+    });
+
+    if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(function(position) {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            currentPosition = L.latLng(lat, lng);
+            map.setView([lat, lng], 13);
+            marker = L.marker([lat, lng], {icon: customIcons.userLocation}).addTo(map);
+            drawSearchRadius();
+        });
+    }
+}
+
 async function findRestaurants() {
     if (!currentPosition) {
         alert('Please click on the map to place a marker first!');
         return;
     }
+
+    drawSearchRadius();
 
     const radius = document.getElementById('radius').value;
     const cuisineType = document.getElementById('cuisine-select').value;
