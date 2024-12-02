@@ -1,9 +1,21 @@
 let map;
 let marker;
 let currentPosition;
-let routingControl;
 let heatmapLayer;
 let restaurantMarkers = [];
+let searchRadiusCircle;
+
+const DEFAULT_RADIUS = {
+    walking: 1000,    // 1km for walking
+    cycling: 5000,    // 5km for cycling
+    driving: 10000    // 10km for driving
+};
+
+const RADIUS_LIMITS = {
+    walking: { min: 100, max: 3000 },    // Walking: 100m to 3km
+    cycling: { min: 100, max: 10000 },   // Cycling: 100m to 10km
+    driving: { min: 100, max: 25000 }    // Driving: 100m to 25km
+};
 
 const customIcons = {
     userLocation: L.divIcon({
@@ -64,6 +76,42 @@ const customIcons = {
     })
 };
 
+function updateRadiusForMode() {
+    const modeSelect = document.getElementById('mode-select');
+    const radiusInput = document.getElementById('radius');
+    const selectedMode = modeSelect.value;
+    
+    radiusInput.min = RADIUS_LIMITS[selectedMode].min;
+    radiusInput.max = RADIUS_LIMITS[selectedMode].max;
+    
+    const currentRadius = parseInt(radiusInput.value);
+    if (currentRadius < RADIUS_LIMITS[selectedMode].min || 
+        currentRadius > RADIUS_LIMITS[selectedMode].max) {
+        radiusInput.value = DEFAULT_RADIUS[selectedMode];
+    }
+
+    if (currentPosition) {
+        drawSearchRadius();
+    }
+}
+
+function drawSearchRadius() {
+    if (searchRadiusCircle) {
+        map.removeLayer(searchRadiusCircle);
+    }
+
+    if (currentPosition) {
+        const radius = document.getElementById('radius').value;
+        searchRadiusCircle = L.circle(currentPosition, {
+            radius: parseInt(radius),
+            fillColor: '#000',
+            fillOpacity: 0.1,
+            color: '#000',
+            weight: 1
+        }).addTo(map);
+    }
+}
+
 function initMap() {
     map = L.map('map').setView([51.505, -0.09], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -76,6 +124,7 @@ function initMap() {
         }
         currentPosition = e.latlng;
         marker = L.marker(e.latlng, {icon: customIcons.userLocation}).addTo(map);
+        drawSearchRadius();
     });
 
     if ("geolocation" in navigator) {
@@ -85,56 +134,28 @@ function initMap() {
             currentPosition = L.latLng(lat, lng);
             map.setView([lat, lng], 13);
             marker = L.marker([lat, lng], {icon: customIcons.userLocation}).addTo(map);
+            drawSearchRadius();
         });
     }
-}
 
-function clearRoute() {
-    if (routingControl) {
-        map.removeControl(routingControl);
-        routingControl = null;
-    }
-    
-    map.eachLayer((layer) => {
-        if (layer instanceof L.Polyline && !(layer instanceof L.Polygon)) {
-            map.removeLayer(layer);
-        }
-    });
+    updateRadiusForMode();
 }
 
 function calculateDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371; // Earth's radius in km
+    const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
     const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
         Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
         Math.sin(dLon/2) * Math.sin(dLon/2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    const distance = R * c;
-    return distance;
+    return R * c;
 }
 
-function createRoute(destLat, destLng) {
-    clearRoute();
-    if (!currentPosition) {
-        alert('Please set your location first!');
-        return;
-    }
-
-    const routeCoords = [
-        [currentPosition.lat, currentPosition.lng],
-        [destLat, destLng]
-    ];
-    
-    L.polyline(routeCoords, {
-        color: '#000',
-        weight: 3,
-        opacity: 0.7,
-        dashArray: '5, 10'
-    }).addTo(map);
-
-    const bounds = L.latLngBounds(routeCoords);
-    map.fitBounds(bounds, { padding: [50, 50] });
+function getGoogleMapsUrl(lat, lon, name) {
+    const encodedName = encodeURIComponent(name || 'Restaurant');
+    const mode = document.getElementById('mode-select').value;
+    return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&destination_name=${encodedName}&travelmode=${mode}`;
 }
 
 function toggleHeatmap() {
@@ -208,6 +229,8 @@ function createPopupContent(restaurant) {
     const openStatus = isOpenNow(restaurant.tags.opening_hours);
     const statusClass = openStatus === 'Open' ? 'status-open' : 'status-closed';
 
+    const googleMapsUrl = getGoogleMapsUrl(restaurant.lat, restaurant.lon, restaurant.tags.name);
+
     return `
         <div class="custom-popup">
             <h3>${restaurant.tags.name || 'Unnamed Restaurant'}</h3>
@@ -219,127 +242,12 @@ function createPopupContent(restaurant) {
                 <p><strong>Address:</strong> ${restaurant.tags['addr:street'] || 'Address not available'}</p>
             </div>
             <div class="popup-actions">
-                <button class="btn" onclick="createRoute(${restaurant.lat}, ${restaurant.lon})">
-                    Get Directions
-                </button>
+                <a href="${googleMapsUrl}" target="_blank" class="btn">
+                    Open in Google Maps
+                </a>
             </div>
         </div>
     `;
-}
-
-// Add these functions to script.js
-
-// Function to draw search radius circle
-function drawSearchRadius() {
-    // Remove existing radius circles
-    map.eachLayer((layer) => {
-        if (layer instanceof L.Circle) {
-            map.removeLayer(layer);
-        }
-    });
-
-    if (currentPosition) {
-        const radius = document.getElementById('radius').value;
-        L.circle(currentPosition, {
-            radius: parseInt(radius),
-            fillColor: '#000',
-            fillOpacity: 0.1,
-            color: '#000',
-            weight: 1
-        }).addTo(map);
-    }
-}
-
-// Function to get route using OSRM
-async function getRoute(start, end) {
-    const response = await fetch(
-        `https://router.project-osrm.org/route/v1/walking/${start.lng},${start.lat};${end[1]},${end[0]}?overview=full&geometries=geojson`
-    );
-    const data = await response.json();
-    return data;
-}
-
-// Update createRoute function
-async function createRoute(destLat, destLng) {
-    clearRoute();
-    if (!currentPosition) {
-        alert('Please set your location first!');
-        return;
-    }
-
-    try {
-        const routeData = await getRoute(currentPosition, [destLat, destLng]);
-        
-        if (routeData.code === 'Ok' && routeData.routes.length > 0) {
-            const routeCoordinates = routeData.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
-            
-            // Create the route polyline
-            const routeLine = L.polyline(routeCoordinates, {
-                color: '#000',
-                weight: 3,
-                opacity: 0.7
-            }).addTo(map);
-
-            // Fit the map to show the entire route
-            const bounds = L.latLngBounds(routeCoordinates);
-            map.fitBounds(bounds, { padding: [50, 50] });
-
-            // Add distance and duration to the popup
-            const distance = (routeData.routes[0].distance / 1000).toFixed(2); // Convert to km
-            const duration = Math.round(routeData.routes[0].duration / 60); // Convert to minutes
-
-            routeLine.bindPopup(
-                `<div class="route-info">
-                    <p><strong>Distance:</strong> ${distance} km</p>
-                    <p><strong>Walking time:</strong> ~${duration} minutes</p>
-                </div>`
-            );
-        }
-    } catch (error) {
-        console.error('Error creating route:', error);
-        alert('Error calculating route. Falling back to straight line.');
-        
-        // Fallback to straight line if routing fails
-        const routeCoords = [
-            [currentPosition.lat, currentPosition.lng],
-            [destLat, destLng]
-        ];
-        
-        L.polyline(routeCoords, {
-            color: '#000',
-            weight: 3,
-            opacity: 0.7,
-            dashArray: '5, 10'
-        }).addTo(map);
-    }
-}
-
-// Update initMap function to include radius drawing
-function initMap() {
-    map = L.map('map').setView([51.505, -0.09], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
-
-    map.on('click', function(e) {
-        if (marker) {
-            map.removeLayer(marker);
-        }
-        currentPosition = e.latlng;
-        marker = L.marker(e.latlng, {icon: customIcons.userLocation}).addTo(map);
-        drawSearchRadius();
-    });
-
-    if ("geolocation" in navigator) {
-        navigator.geolocation.getCurrentPosition(function(position) {
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
-            currentPosition = L.latLng(lat, lng);
-            map.setView([lat, lng], 13);
-            marker = L.marker([lat, lng], {icon: customIcons.userLocation}).addTo(map);
-            drawSearchRadius();
-        });
-    }
 }
 
 async function findRestaurants() {
@@ -349,7 +257,6 @@ async function findRestaurants() {
     }
 
     drawSearchRadius();
-
     const radius = document.getElementById('radius').value;
     const cuisineType = document.getElementById('cuisine-select').value;
     
@@ -393,11 +300,9 @@ function displayResults(restaurants) {
     const resultsDiv = document.getElementById('results');
     resultsDiv.innerHTML = '';
 
-    // Clear existing restaurant markers
     restaurantMarkers.forEach(marker => map.removeLayer(marker));
     restaurantMarkers = [];
 
-    // Clear heatmap if it exists
     if (heatmapLayer) {
         map.removeLayer(heatmapLayer);
         heatmapLayer = null;
@@ -405,7 +310,6 @@ function displayResults(restaurants) {
 
     restaurants.forEach(restaurant => {
         if (restaurant.type === 'node' && restaurant.tags) {
-            // Get the cuisine type and corresponding icon
             const cuisine = restaurant.tags.cuisine ? restaurant.tags.cuisine.toLowerCase() : 'default';
             const icon = customIcons[cuisine] || customIcons.default;
 
@@ -424,6 +328,8 @@ function displayResults(restaurants) {
                 restaurant.lon
             ).toFixed(2);
 
+            const googleMapsUrl = getGoogleMapsUrl(restaurant.lat, restaurant.lon, restaurant.tags.name);
+
             const restaurantDiv = document.createElement('div');
             restaurantDiv.className = 'restaurant-item';
             restaurantDiv.innerHTML = `
@@ -432,6 +338,7 @@ function displayResults(restaurants) {
                     <p>Cuisine: ${restaurant.tags.cuisine || 'Not specified'}</p>
                     <p>Distance: ${distance} km</p>
                     <p>Address: ${restaurant.tags['addr:street'] || 'Address not available'}</p>
+                    <a href="${googleMapsUrl}" target="_blank" class="btn btn-small">Open in Google Maps</a>
                 </div>
             `;
 

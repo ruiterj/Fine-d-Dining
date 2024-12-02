@@ -17,6 +17,15 @@
         <div class="controls-container">
             <div class="controls">
                 <div class="control-group">
+                    <label class="control-label">Travel Mode</label>
+                    <select id="mode-select" onchange="updateRadiusForMode()">
+                        <option value="walking">Walking</option>
+                        <option value="cycling">Cycling</option>
+                        <option value="driving">Driving</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
                     <label class="control-label">Cuisine Type</label>
                     <select id="cuisine-select">
                         <option value="all">All Restaurants</option>
@@ -45,8 +54,6 @@
                     <input type="checkbox" id="heatmap-toggle" onchange="toggleHeatmap()">
                     <label class="toggle-label" for="heatmap-toggle">Show Restaurant Density</label>
                 </div>
-                
-                <button class="btn btn-secondary" onclick="clearRoute()">Clear Route</button>
             </div>
         </div>
 
