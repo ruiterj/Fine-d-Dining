@@ -214,3 +214,61 @@ select, input {
         height: 400px;
     }
 }
+
+/* Legend Styles */
+.list-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.list-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #000;
+}
+
+.legend {
+    display: flex;
+    gap: 1.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: #666;
+}
+
+.legend-marker {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+
+.legend-marker.user-location {
+    background-color: #000;
+}
+
+.legend-item span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+/* Update responsive styles for legend */
+@media (max-width: 768px) {
+    .list-header {
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .legend {
+        justify-content: flex-start;
+    }
+}
